@@ -201,10 +201,13 @@ cython_debug/
 .cursorignore
 .cursorindexingignore
 
-.vscode/
-*.code-workspace
 
 # Marimo
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+
+
+.vscode/
+*.code-workspace
