@@ -17,15 +17,16 @@ class Settings(BaseSettings):
     """
 
     # Información del proyecto
-    PROJECT_NAME: str = "FastAPI Clean Architecture"
+    PROJECT_NAME: str = "FastAPI Clean Architecture MongoDB"
     VERSION: str = "1.0.0"
-    DESCRIPTION: str = "API con arquitectura de tres capas y Clean Code"
+    DESCRIPTION: str = "API con arquitectura de tres capas, Clean Code y MongoDB"
 
     # Configuración de la API
     API_V1_STR: str = "/api/v1"
 
-    # Configuración de base de datos
-    DATABASE_URL: str = "sqlite:///./app.db"
+    # Configuración de MongoDB
+    MONGODB_URL: str = "mongodb://localhost:27017/fastapi_db"
+    MONGODB_DATABASE: str = "fastapi_db"
 
     # Configuración de seguridad
     SECRET_KEY: str = "your-secret-key-change-in-production"

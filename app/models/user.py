@@ -1,19 +1,22 @@
 """
-Modelo de dominio para la entidad Usuario.
+Modelo de documento para la entidad Usuario en MongoDB.
+
+Utiliza Beanie como ODM (Object Document Mapper) para MongoDB,
+que es similar a SQLAlchemy pero para documentos NoSQL.
 """
 
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, Boolean, DateTime
+from typing import Optional
 
-from app.db.database import Base
+from beanie import Document, Indexed
+from pydantic import Field, EmailStr
 
 
-class User(Base):
+class UserDocument(Document):
     """
-    Modelo ORM que representa un usuario en el sistema.
+    Documento MongoDB que representa un usuario en el sistema.
 
     Attributes:
-        id: Identificador único del usuario.
         email: Correo electrónico único del usuario.
         username: Nombre de usuario único.
         hashed_password: Contraseña hasheada para autenticación.
@@ -23,16 +26,30 @@ class User(Base):
         updated_at: Fecha de última actualización.
     """
 
-    __tablename__ = "users"
+    email: Indexed(EmailStr, unique=True)  # type: ignore[valid-type]
+    username: Indexed(str, unique=True)  # type: ignore[valid-type]
+    hashed_password: str
+    is_active: bool = True
+    is_superuser: bool = False
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
 
-    id = Column(Integer, primary_key=True, index=True)
-    email = Column(String(255), unique=True, index=True, nullable=False)
-    username = Column(String(100), unique=True, index=True, nullable=False)
-    hashed_password = Column(String(255), nullable=False)
-    is_active = Column(Boolean, default=True)
-    is_superuser = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    class Settings:
+        """Configuración del documento en MongoDB."""
+
+        name = "users"  # Nombre de la colección
+
+    class Config:
+        """Configuración del modelo Pydantic."""
+
+        json_encoders = {datetime: lambda v: v.isoformat()}
 
     def __repr__(self) -> str:
         return f"<User(id={self.id}, email={self.email}, username={self.username})>"
+
+    async def update_timestamp(self) -> None:
+        """
+        Actualiza el campo updated_at a la fecha/hora actual.
+        """
+        self.updated_at = datetime.utcnow()
+        await self.save()

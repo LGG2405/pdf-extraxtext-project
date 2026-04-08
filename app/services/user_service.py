@@ -5,17 +5,18 @@ Esta clase encapsula la lógica de negocio relacionada con usuarios,
 desacoplando la capa de API de los detalles de implementación.
 """
 
+from datetime import datetime
+
 from passlib.context import CryptContext
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import (
     ResourceNotFoundException,
     DuplicateResourceException,
     ValidationException,
 )
-from app.models.user import User
+from app.models.user import UserDocument
 from app.repositories.user_repository import user_repository
-from app.schemas.user import UserCreate, UserUpdate, UserResponse
+from app.schemas.user import UserCreate, UserUpdate
 
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -27,6 +28,9 @@ class UserService:
 
     Esta clase actúa como intermediario entre los endpoints de la API
     y el repositorio de datos, aplicando reglas de negocio y validaciones.
+
+    Nota: Con Beanie/MongoDB, no necesitamos manejar sesiones explícitamente
+    como en SQLAlchemy, ya que Motor maneja las conexiones de forma async.
     """
 
     def __init__(self):
@@ -57,12 +61,11 @@ class UserService:
         """
         return pwd_context.verify(plain_password, hashed_password)
 
-    async def create_user(self, db: AsyncSession, user_data: UserCreate) -> User:
+    async def create_user(self, user_data: UserCreate) -> UserDocument:
         """
         Crea un nuevo usuario en el sistema.
 
         Args:
-            db: Sesión de base de datos.
             user_data: Datos del usuario a crear.
 
         Returns:
@@ -75,24 +78,25 @@ class UserService:
         if len(user_data.password) < 6:
             raise ValidationException("La contraseña debe tener al menos 6 caracteres")
 
-        if await self._repository.email_exists(db, user_data.email):
+        if await self._repository.email_exists(user_data.email):
             raise DuplicateResourceException("Usuario", "email", user_data.email)
 
-        if await self._repository.username_exists(db, user_data.username):
+        if await self._repository.username_exists(user_data.username):
             raise DuplicateResourceException("Usuario", "username", user_data.username)
 
         user_dict = user_data.model_dump()
         user_dict["hashed_password"] = self._hash_password(user_dict.pop("password"))
+        user_dict["created_at"] = datetime.utcnow()
+        user_dict["updated_at"] = datetime.utcnow()
 
-        return await self._repository.create(db, user_dict)
+        return await self._repository.create(user_dict)
 
-    async def get_user_by_id(self, db: AsyncSession, user_id: int) -> User:
+    async def get_user_by_id(self, user_id: str) -> UserDocument:
         """
         Obtiene un usuario por su ID.
 
         Args:
-            db: Sesión de base de datos.
-            user_id: ID del usuario.
+            user_id: ID del usuario (string de ObjectId).
 
         Returns:
             El usuario encontrado.
@@ -100,33 +104,29 @@ class UserService:
         Raises:
             ResourceNotFoundException: Si el usuario no existe.
         """
-        user = await self._repository.get_by_id(db, user_id)
+        user = await self._repository.get_by_id(user_id)
         if not user:
-            raise ResourceNotFoundException("Usuario", str(user_id))
+            raise ResourceNotFoundException("Usuario", user_id)
         return user
 
-    async def get_user_by_email(self, db: AsyncSession, email: str) -> User | None:
+    async def get_user_by_email(self, email: str) -> UserDocument | None:
         """
         Busca un usuario por su email.
 
         Args:
-            db: Sesión de base de datos.
             email: Email del usuario.
 
         Returns:
             El usuario si existe, None en caso contrario.
         """
-        return await self._repository.get_by_email(db, email)
+        return await self._repository.get_by_email(email)
 
-    async def update_user(
-        self, db: AsyncSession, user_id: int, user_data: UserUpdate
-    ) -> User:
+    async def update_user(self, user_id: str, user_data: UserUpdate) -> UserDocument:
         """
         Actualiza los datos de un usuario existente.
 
         Args:
-            db: Sesión de base de datos.
-            user_id: ID del usuario a actualizar.
+            user_id: ID del usuario a actualizar (string de ObjectId).
             user_data: Datos actualizados del usuario.
 
         Returns:
@@ -136,34 +136,32 @@ class UserService:
             ResourceNotFoundException: Si el usuario no existe.
             DuplicateResourceException: Si el nuevo email ya está en uso.
         """
-        user = await self.get_user_by_id(db, user_id)
+        user = await self.get_user_by_id(user_id)
 
         update_data = user_data.model_dump(exclude_unset=True)
 
+        # Verificar email duplicado
         if "email" in update_data and update_data["email"] != user.email:
-            if await self._repository.email_exists(db, update_data["email"]):
-                raise DuplicateResourceException(
-                    "Usuario", "email", update_data["email"]
-                )
+            if await self._repository.email_exists(update_data["email"]):
+                raise DuplicateResourceException("Usuario", "email", update_data["email"])
 
+        # Hashear nueva contraseña si se proporciona
         if "password" in update_data:
             if len(update_data["password"]) < 6:
-                raise ValidationException(
-                    "La contraseña debe tener al menos 6 caracteres"
-                )
-            update_data["hashed_password"] = self._hash_password(
-                update_data.pop("password")
-            )
+                raise ValidationException("La contraseña debe tener al menos 6 caracteres")
+            update_data["hashed_password"] = self._hash_password(update_data.pop("password"))
 
-        return await self._repository.update(db, user, update_data)
+        # Actualizar timestamp
+        update_data["updated_at"] = datetime.utcnow()
 
-    async def delete_user(self, db: AsyncSession, user_id: int) -> User:
+        return await self._repository.update(user, update_data)
+
+    async def delete_user(self, user_id: str) -> UserDocument:
         """
         Elimina un usuario del sistema.
 
         Args:
-            db: Sesión de base de datos.
-            user_id: ID del usuario a eliminar.
+            user_id: ID del usuario a eliminar (string de ObjectId).
 
         Returns:
             El usuario eliminado.
@@ -171,9 +169,8 @@ class UserService:
         Raises:
             ResourceNotFoundException: Si el usuario no existe.
         """
-        user = await self._repository.delete(db, user_id)
-        if not user:
-            raise ResourceNotFoundException("Usuario", str(user_id))
+        user = await self.get_user_by_id(user_id)
+        await self._repository.delete(user)
         return user
 
 

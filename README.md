@@ -8,7 +8,7 @@ Proyecto de desarrollo de software 2026. Ingenieria en Sistemas de la Informacio
 - Modelo de IA (A definir)
 - Ollama (a definir a futuro)
 - xD
-- Base de datos no relacional MongoDB
+- Base de datos **MongoDB** con Motor (driver async) y Beanie (ODM)
 
 ## Metodologías
 
@@ -36,7 +36,7 @@ Proyecto de desarrollo de software 2026. Ingenieria en Sistemas de la Informacio
 │   │   ├── exceptions.py    # Excepciones de dominio
 │   │   └── logging.py       # Configuración de logging
 │   ├── db/                  # Capa de base de datos
-│   │   └── database.py      # Configuración SQLAlchemy async
+│   │   └── database.py      # Configuración MongoDB con Motor
 │   ├── models/              # Modelos ORM (Capa de Datos)
 │   │   └── user.py
 │   ├── schemas/             # Schemas Pydantic (Validación)

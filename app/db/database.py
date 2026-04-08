@@ -1,43 +1,59 @@
 """
-Configuración de la base de datos y gestión de sesiones.
+Configuración de la base de datos MongoDB con Motor.
+
+Motor es el driver async oficial de MongoDB para Python.
 """
 
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from sqlalchemy.orm import declarative_base
+from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
+from beanie import init_beanie
 
 from app.core.config import get_settings
+from app.models.user import UserDocument
 
 settings = get_settings()
 
-# Base para los modelos ORM
-Base = declarative_base()
-
-# Motor de base de datos asíncrono
-engine = create_async_engine(settings.DATABASE_URL, echo=False, future=True)
-
-# Factory de sesiones asíncronas
-AsyncSessionLocal = async_sessionmaker(
-    engine, class_=AsyncSession, expire_on_commit=False
-)
+# Cliente MongoDB asíncrono
+client: AsyncIOMotorClient | None = None
+database: AsyncIOMotorDatabase | None = None
 
 
-async def get_db_session():
+async def init_database():
     """
-    Generador de sesiones de base de datos para dependency injection.
+    Inicializa la conexión a MongoDB y Beanie ODM.
 
-    Yields:
-        AsyncSession: Sesión de base de datos activa.
+    Esta función debe llamarse al iniciar la aplicación.
     """
-    async with AsyncSessionLocal() as session:
-        try:
-            yield session
-        finally:
-            await session.close()
+    global client, database
+
+    client = AsyncIOMotorClient(settings.MONGODB_URL)
+    database = client[settings.MONGODB_DATABASE]
+
+    # Inicializar Beanie con los modelos/documentos
+    await init_beanie(database=database, document_models=[UserDocument])
 
 
-async def create_tables():
+async def close_database():
     """
-    Crea todas las tablas definidas en los modelos.
+    Cierra la conexión a MongoDB.
+
+    Esta función debe llamarse al cerrar la aplicación.
     """
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    global client
+    if client:
+        client.close()
+        client = None
+
+
+async def get_database() -> AsyncIOMotorDatabase:
+    """
+    Retorna la instancia de la base de datos.
+
+    Returns:
+        AsyncIOMotorDatabase: Instancia de la base de datos MongoDB.
+
+    Raises:
+        RuntimeError: Si la base de datos no ha sido inicializada.
+    """
+    if database is None:
+        raise RuntimeError("Database not initialized. Call init_database() first.")
+    return database

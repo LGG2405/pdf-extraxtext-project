@@ -1,122 +1,122 @@
 """
-Repositorio base abstracto que define las operaciones CRUD estándar.
+Repositorio base abstracto que define las operaciones CRUD estándar para MongoDB.
 
 Implementa el patrón Repository para desacoplar la capa de datos
-de la lógica de negocio.
+de la lógica de negocio usando Beanie como ODM.
 """
 
-from abc import ABC, abstractmethod
-from typing import Generic, TypeVar, Sequence
+from abc import ABC
+from typing import Generic, TypeVar
 
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-
-from app.db.database import Base
-
-
-ModelType = TypeVar("ModelType", bound=Base)
+from beanie import Document
+from beanie.operators import In
+from bson import ObjectId
 
 
-class BaseRepository(ABC, Generic[ModelType]):
+DocType = TypeVar("DocType", bound=Document)
+
+
+class BaseRepository(ABC, Generic[DocType]):
     """
-    Repositorio base que proporciona operaciones CRUD genéricas.
+    Repositorio base que proporciona operaciones CRUD genéricas para MongoDB.
 
     Type Parameters:
-        ModelType: El tipo del modelo ORM que maneja este repositorio.
+        DocType: El tipo del documento Beanie que maneja este repositorio.
     """
 
-    def __init__(self, model: type[ModelType]):
+    def __init__(self, document_model: type[DocType]):
         """
-        Inicializa el repositorio con el modelo ORM correspondiente.
+        Inicializa el repositorio con el modelo de documento correspondiente.
 
         Args:
-            model: La clase del modelo ORM.
+            document_model: La clase del documento Beanie.
         """
-        self._model = model
+        self._document_model = document_model
 
-    async def get_by_id(self, db: AsyncSession, id: int) -> ModelType | None:
+    async def get_by_id(self, doc_id: str) -> DocType | None:
         """
-        Obtiene un registro por su ID.
+        Obtiene un documento por su ID.
 
         Args:
-            db: Sesión de base de datos.
-            id: Identificador del registro.
+            doc_id: Identificador del documento (string de ObjectId).
 
         Returns:
-            La instancia del modelo si existe, None en caso contrario.
+            La instancia del documento si existe, None en caso contrario.
         """
-        result = await db.execute(select(self._model).where(self._model.id == id))
-        return result.scalar_one_or_none()
+        try:
+            return await self._document_model.get(ObjectId(doc_id))
+        except Exception:
+            return None
 
-    async def get_all(
-        self, db: AsyncSession, skip: int = 0, limit: int = 100
-    ) -> Sequence[ModelType]:
+    async def get_all(self, skip: int = 0, limit: int = 100) -> list[DocType]:
         """
-        Obtiene una lista paginada de registros.
+        Obtiene una lista paginada de documentos.
 
         Args:
-            db: Sesión de base de datos.
-            skip: Número de registros a omitir (offset).
-            limit: Número máximo de registros a retornar.
+            skip: Número de documentos a omitir (offset).
+            limit: Número máximo de documentos a retornar.
 
         Returns:
-            Lista de instancias del modelo.
+            Lista de instancias del documento.
         """
-        result = await db.execute(select(self._model).offset(skip).limit(limit))
-        return result.scalars().all()
+        return await self._document_model.find().skip(skip).limit(limit).to_list()
 
-    async def create(self, db: AsyncSession, obj_in: dict) -> ModelType:
+    async def create(self, data: dict) -> DocType:
         """
-        Crea un nuevo registro en la base de datos.
+        Crea un nuevo documento en la base de datos.
 
         Args:
-            db: Sesión de base de datos.
-            obj_in: Diccionario con los datos a insertar.
+            data: Diccionario con los datos a insertar.
 
         Returns:
-            La instancia creada del modelo.
+            La instancia creada del documento.
         """
-        db_obj = self._model(**obj_in)
-        db.add(db_obj)
-        await db.commit()
-        await db.refresh(db_obj)
-        return db_obj
+        doc = self._document_model(**data)
+        await doc.insert()
+        return doc
 
-    async def update(
-        self, db: AsyncSession, db_obj: ModelType, obj_in: dict
-    ) -> ModelType:
+    async def update(self, doc: DocType, data: dict) -> DocType:
         """
-        Actualiza un registro existente.
+        Actualiza un documento existente.
 
         Args:
-            db: Sesión de base de datos.
-            db_obj: Instancia del modelo a actualizar.
-            obj_in: Diccionario con los datos a actualizar.
+            doc: Instancia del documento a actualizar.
+            data: Diccionario con los datos a actualizar.
 
         Returns:
-            La instancia actualizada del modelo.
+            La instancia actualizada del documento.
         """
-        for field, value in obj_in.items():
-            if value is not None:
-                setattr(db_obj, field, value)
+        for field, value in data.items():
+            if value is not None and hasattr(doc, field):
+                setattr(doc, field, value)
 
-        await db.commit()
-        await db.refresh(db_obj)
-        return db_obj
+        await doc.save()
+        return doc
 
-    async def delete(self, db: AsyncSession, id: int) -> ModelType | None:
+    async def delete(self, doc: DocType) -> None:
         """
-        Elimina un registro por su ID.
+        Elimina un documento de la base de datos.
 
         Args:
-            db: Sesión de base de datos.
-            id: Identificador del registro a eliminar.
+            doc: Instancia del documento a eliminar.
+        """
+        await doc.delete()
+
+    async def delete_by_id(self, doc_id: str) -> bool:
+        """
+        Elimina un documento por su ID.
+
+        Args:
+            doc_id: Identificador del documento a eliminar.
 
         Returns:
-            La instancia eliminada si existía, None en caso contrario.
+            True si se eliminó correctamente, False si no existía.
         """
-        obj = await self.get_by_id(db, id)
-        if obj:
-            await db.delete(obj)
-            await db.commit()
-        return obj
+        try:
+            doc = await self.get_by_id(doc_id)
+            if doc:
+                await doc.delete()
+                return True
+            return False
+        except Exception:
+            return False
